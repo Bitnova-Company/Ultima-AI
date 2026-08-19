@@ -48,7 +48,12 @@ export function incompleteBeta(x, a, b) {
 
   // The continued fraction converges rapidly only for x < (a+1)/(a+b+2);
   // otherwise use the symmetry I_x(a,b) = 1 - I_{1-x}(b,a).
-  if (x >= (a + 1) / (a + b + 2)) return 1 - incompleteBeta(1 - x, b, a);
+  //
+  // The inequality MUST be strict. The two swap thresholds sum to exactly 1,
+  // so a strict test guarantees the swapped call never swaps back, whereas
+  // `>=` recurses forever whenever x sits exactly on the boundary — which
+  // happens for the perfectly ordinary case I_0.5(1,1).
+  if (x > (a + 1) / (a + b + 2)) return 1 - incompleteBeta(1 - x, b, a);
 
   const TINY = 1e-30;
   let f = 1, c = 1, d = 0;
@@ -550,6 +555,31 @@ export function wilsonInterval(successes, trials, z = Z_95) {
     lower: Math.max(0, (centre - spread) / denom),
     upper: Math.min(1, (centre + spread) / denom),
   };
+}
+
+/**
+ * Exact one-sided binomial tail: P(X >= successes) for X ~ Binomial(trials, p0).
+ *
+ * This is the test that makes cross-tenant corroboration mean anything. The
+ * naive rule "alert when at least K tenants agree" gets WORSE as the network
+ * grows: if each tenant independently throws a chance flag at rate p0, the
+ * expected number of chance flags is p0 * trials, so a fixed K is eventually
+ * cleared by noise alone on every cycle. The right question is not "how many
+ * tenants agree" but "do more tenants agree than chance would produce at this
+ * fleet size", which is exactly this tail probability.
+ *
+ * Computed via the regularised incomplete beta identity
+ *   P(X >= k) = I_{p0}(k, n - k + 1)
+ * rather than by summing terms, so it stays exact deep in the tail where a
+ * naive summation of binomial pmf terms underflows to zero.
+ */
+export function binomialTailP(successes, trials, p0) {
+  if (trials <= 0) return 1;
+  if (successes <= 0) return 1;
+  if (successes > trials) return 0;
+  if (p0 <= 0) return 0;
+  if (p0 >= 1) return 1;
+  return incompleteBeta(p0, successes, trials - successes + 1);
 }
 
 /** Deterministic seeded PRNG (mulberry32) — reproducible simulations & tests. */

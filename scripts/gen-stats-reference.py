@@ -129,12 +129,23 @@ sp = np.sqrt(((len(a) - 1) * np.var(a, ddof=1) + (len(b) - 1) * np.var(b, ddof=1
              / (len(a) + len(b) - 2))
 cohens_d = dict(a=a, b=b, d=float((np.mean(a) - np.mean(b)) / sp))
 
+# Exact one-sided binomial tail P(X >= k), the corroboration test in the
+# consensus engine. Cases span the deep tail (where a naive pmf summation
+# underflows) and the degenerate edges.
+binom_cases = [(2, 3, 0.09), (2, 10, 0.09), (5, 50, 0.09), (10, 50, 0.09),
+               (25, 50, 0.09), (1, 1, 0.5), (1, 500, 0.001), (40, 50, 0.09),
+               (3, 300, 0.005), (150, 300, 0.5), (2, 4, 0.25), (7, 20, 0.2),
+               (50, 50, 0.09), (1, 1000, 0.09), (300, 1000, 0.25)]
+binomial_tail = dict(cases=[[int(k), int(n), float(p0),
+                             float(stats.binom.sf(k - 1, n, p0))]
+                            for k, n, p0 in binom_cases])
+
 payload = dict(
     _generator="scripts/gen-stats-reference.py",
     _note=("Ground truth produced by scipy %s / numpy %s / statsmodels. "
            "Do not hand-edit." % (__import__("scipy").__version__, np.__version__)),
     twoSample=two_sample, cliffs=cliffs, benjaminiHochberg=bh, wilson=wilson,
-    quantile=quantile, normalCdf=normal_cdf, erf=erf_ref, erfc=erfc_ref, logGamma=log_gamma, tdist=tdist, cohensD=cohens_d,
+    quantile=quantile, normalCdf=normal_cdf, erf=erf_ref, erfc=erfc_ref, logGamma=log_gamma, tdist=tdist, cohensD=cohens_d, binomialTail=binomial_tail,
 )
 
 with open(OUT, "w") as fh:

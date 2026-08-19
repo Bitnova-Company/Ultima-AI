@@ -26,11 +26,13 @@ import { dirname, join } from 'node:path';
 import {
   Z_95,
   benjaminiHochberg,
+  binomialTailP,
   cliffsDelta,
   cohensD,
   erf,
   erfc,
   gaussian,
+  incompleteBeta,
   ksTest,
   leveneTest,
   logGamma,
@@ -342,6 +344,60 @@ test('Wilson intervals match statsmodels', async (t) => {
   await t.test('a zero-trial denominator does not produce NaN', () => {
     const r = wilsonInterval(0, 0);
     assert.ok(Number.isFinite(r.lower) && Number.isFinite(r.upper), 'no NaN on n=0');
+  });
+});
+
+test('exact binomial tail matches scipy', async (t) => {
+  await t.test('fixture cases agree to near machine precision', () => {
+    for (const [k, n, p0, expected] of REF.binomialTail.cases) {
+      nearRel(binomialTailP(k, n, p0), expected, 1e-11, `binomTail(${k},${n},${p0})`);
+    }
+  });
+
+  await t.test('stays exact deep in the tail where naive summation underflows', () => {
+    // 25 of 50 tenants agreeing at a 9% chance rate is a ~1e-13 event. This is
+    // the regime every published change event lives in, so the estimator has
+    // to be accurate there rather than merely returning zero.
+    const truth = REF.binomialTail.cases.find(([k, n, p0]) => k === 25 && n === 50 && p0 === 0.09);
+    assert.ok(truth, 'fixture must carry the deep-tail case');
+    const p = binomialTailP(25, 50, 0.09);
+    assert.ok(p > 0, 'must not underflow to zero');
+    assert.ok(p < 1e-12, 'and must actually be in the deep tail');
+    nearRel(p, truth[3], 1e-11, 'deep tail');
+  });
+
+  await t.test('is monotone in k, n and p0', () => {
+    for (let k = 1; k < 20; k++) {
+      assert.ok(
+        binomialTailP(k + 1, 40, 0.1) <= binomialTailP(k, 40, 0.1),
+        'requiring more agreement cannot become more likely',
+      );
+    }
+    for (const p0 of [0.01, 0.05, 0.1, 0.3]) {
+      assert.ok(binomialTailP(5, 50, p0) <= binomialTailP(5, 50, p0 + 0.05));
+    }
+    // More tenants makes any fixed count easier to reach by chance -- the
+    // exact effect that breaks fixed-threshold corroboration rules.
+    for (const n of [10, 20, 50, 100, 300]) {
+      assert.ok(binomialTailP(5, n, 0.1) <= binomialTailP(5, n * 2, 0.1));
+    }
+  });
+
+  await t.test('degenerate inputs are safe', () => {
+    assert.equal(binomialTailP(0, 10, 0.1), 1, 'P(X >= 0) is certain');
+    assert.equal(binomialTailP(11, 10, 0.1), 0, 'cannot exceed the trial count');
+    assert.equal(binomialTailP(1, 0, 0.1), 1);
+    assert.equal(binomialTailP(1, 10, 0), 0);
+    assert.equal(binomialTailP(1, 10, 1), 1);
+    nearRel(binomialTailP(50, 50, 0.5), Math.pow(0.5, 50), 1e-11, 'unanimity');
+  });
+
+  await t.test('I_x(a,b) does not hang on the symmetry boundary', () => {
+    // Regression guard. The continued fraction swaps to I_{1-x}(b,a) above a
+    // threshold; when x sits exactly on it, a non-strict comparison recurses
+    // until the stack dies. I_0.5(1,1) is the smallest case that lands there.
+    nearRel(incompleteBeta(0.5, 1, 1), 0.5, 1e-12, 'I_0.5(1,1)');
+    nearRel(binomialTailP(1, 1, 0.5), 0.5, 1e-12, 'the boundary case');
   });
 });
 
